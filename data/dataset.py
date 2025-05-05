@@ -1,5 +1,5 @@
 import os
-
+import nibabel as nib
 import numpy as np
 import torch
 import torchvision.transforms as T
@@ -10,7 +10,7 @@ from data.librispeech import LIBRISPEECH
 from data.era5 import ERA5
 from data.videofolder import VideoFolderDataset
 
-DATA_PATH = '/data'
+DATA_PATH = '/home/jmcginnis/git_repositories/GradNCP/data'
 
 
 class ImgDataset(Dataset):
@@ -45,6 +45,66 @@ class ImageFolder(datasets.ImageFolder):
         }
 
 
+
+import torch.nn as nn
+
+class SheppLoganDataset(Dataset):
+    def __init__(self, root_dir, transform=None, img_size=128):
+        self.root_dir = root_dir
+        self.subjects = sorted(os.listdir(root_dir))  # Each subject folder
+        self.transform = transform
+        self.img_size = img_size
+
+        if self.img_size == 128:
+            self.downsample = nn.AvgPool3d(kernel_size=2, stride=2)
+        else:
+            self.downsample = None
+
+    def __len__(self):
+        return len(self.subjects)
+
+    def __getitem__(self, idx):
+        subject_path = os.path.join(self.root_dir, self.subjects[idx])
+
+        t1 = nib.load(os.path.join(subject_path, 'T1w.nii.gz')).get_fdata()
+        t2 = nib.load(os.path.join(subject_path, 'T2w.nii.gz')).get_fdata()
+        flair = nib.load(os.path.join(subject_path, 'FLAIR.nii.gz')).get_fdata()
+
+        t1 = torch.from_numpy(t1)
+        t2 = torch.from_numpy(t2)
+        flair = torch.from_numpy(flair)
+
+        if self.downsample:
+            t1= self.downsample(t1.unsqueeze(0))
+            t2= self.downsample(t2.unsqueeze(0))
+            flair= self.downsample(flair.unsqueeze(0))
+
+        #print("Flair Shape:")
+        #print(flair.shape)
+
+        def normalize(x):
+            #x = x.astype(np.float32)
+            return (x - torch.min(x)) / (torch.max(x) - torch.min(x) + 1e-5)
+
+        stacked = np.stack([normalize(t1), normalize(t2), normalize(flair)], axis=0)  # (3, H, W, D)
+        stacked_tensor = torch.from_numpy(stacked).float().unsqueeze(0)  # (1, 3, H, W, D)
+
+        #print("Stacked Shape:")
+        #print(stacked_tensor.shape)
+
+        #if self.downsample:
+        #    stacked_tensor = self.downsample(stacked_tensor)  # (1, 3, H', W', D')
+        #stacked_tensor = stacked_tensor.squeeze(0)  # (3, H', W', D')
+
+        if self.transform:
+            stacked_tensor = self.transform(stacked_tensor)
+
+        return {
+            'img': stacked_tensor
+        }
+
+
+
 def get_dataset(P, dataset, only_test=False):
     """
     Load dataloaders for an image dataset, center-cropped to a resolution.
@@ -60,11 +120,11 @@ def get_dataset(P, dataset, only_test=False):
         ])
         train_set = ImgDataset(
             datasets.CelebA(DATA_PATH, split='train',
-                            target_type='attr', transform=T_base)
+                            target_type='attr', transform=T_base, download=False)
         )
         test_set = ImgDataset(
             datasets.CelebA(DATA_PATH, split='test',
-                            target_type='attr', transform=T_base)
+                            target_type='attr', transform=T_base, download=False)
         )
         P.data_type = 'img'
         P.dim_in, P.dim_out = 2, 3
@@ -112,6 +172,17 @@ def get_dataset(P, dataset, only_test=False):
         P.dim_in, P.dim_out = 2, 3
         P.data_size = (3, 178, 178)
 
+    elif dataset == 'shepp_logan':
+        shepp_root = os.path.join(DATA_PATH, 'shepp_logan')
+        train_set = SheppLoganDataset(os.path.join(shepp_root, 'train'))
+        test_set = SheppLoganDataset(os.path.join(shepp_root, 'test'))
+
+        P.data_type = 'img3d'
+        P.dim_in, P.dim_out = 3, 3
+        # P.data_size = (3, 45, 52, 45)  # adjust this based on your actual NIfTI resolution
+        # P.data_size = (3, 22, 27, 22)
+        # P.data_size = (3, 182, 218, 182)
+        P.data_size = (3, 91, 109, 91)
 
     elif dataset == 'celebahq1024':
         T_base = T.Compose([

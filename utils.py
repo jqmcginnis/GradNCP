@@ -365,6 +365,10 @@ def get_meta_batch(P, task_data):
     if P.data_type == 'img':
         batch_size = task_data['imgs'].size(0)
         context = [task_data['imgs']]
+
+    elif P.data_type == 'img3d':
+        batch_size = task_data['img'].size(0)
+        context = [task_data['img']]
     elif P.data_type == 'video':
         batch_size = task_data['videos'].size(0)
         context = [task_data['videos']]

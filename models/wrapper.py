@@ -19,6 +19,7 @@ class MetaWrapper(nn.Module):
         self.P = P
         self.decoder = decoder
         self.data_type = P.data_type
+
         self.sampled_coord = None
         self.sampled_index = None
         self.gradncp_coord = None
@@ -30,6 +31,15 @@ class MetaWrapper(nn.Module):
 
             mgrid = self.shape_to_coords((self.width, self.height))
             mgrid = rearrange(mgrid, 'h w c -> (h w) c')
+
+        elif self.data_type == 'img3d':
+            self.width = P.data_size[1]
+            self.height = P.data_size[2]
+            self.depth = P.data_size[3]
+
+            mgrid = self.shape_to_coords((self.width, self.height, self.depth))
+            mgrid = rearrange(mgrid, 'h w d c -> (h w d) c')
+
 
         elif self.data_type == 'manifold':
             self.width = P.data_size[1]
@@ -118,8 +128,11 @@ class MetaWrapper(nn.Module):
         return coords, meta_batch_size
 
     def forward(self, inputs, params=None):
-        if self.data_type in ['img', 'manifold']:
+        if self.data_type == 'img': #  or self.data_type == 'manifold':
             return self.forward_image(inputs, params)
+        
+        elif self.data_type == 'img3d':
+            return self.forward_img3d(inputs, params)
         elif self.data_type == 'audio':
             return self.forward_audio(inputs, params)
         elif self.data_type == 'video':
@@ -148,10 +161,16 @@ class MetaWrapper(nn.Module):
             else:
                 out, feature = self.decoder(coords, params=params, get_features=True)
 
-            if self.data_type in ['img', 'manifold']:
+            if self.data_type == 'img':  # or self.data_type == 'manifold':
                 out = rearrange(out, 'b hw c -> b c hw')
                 feature = rearrange(feature, 'b hw f -> b f hw')
                 inputs = rearrange(inputs, 'b c h w -> b c (h w)')
+            
+            elif self.data_type == 'img3d':
+                out = rearrange(out, 'b hwd c -> b c hwd')
+                feature = rearrange(feature, 'b hwd f -> b f hwd')
+                inputs = rearrange(inputs, 'b c h w d -> b c (h w d)')
+
             elif self.data_type == 'audio':
                 out = rearrange(out, 'b l c -> b c l')
                 feature = rearrange(feature, 'b l f -> b f l')
@@ -215,6 +234,7 @@ class MetaWrapper(nn.Module):
         if exists(inputs):
             inputs = inputs[0]
 
+
         coords, meta_batch_size = self.get_batch_coords(inputs, params)
 
         out = self.decoder(coords, params=params)
@@ -239,6 +259,34 @@ class MetaWrapper(nn.Module):
 
         out = rearrange(out, 'b c (h w) -> b c h w', h=self.height, w=self.width)
         return out
+
+    def forward_img3d(self, inputs=None, params=None):
+        if exists(inputs):
+            inputs = inputs[0]
+
+        coords, meta_batch_size = self.get_batch_coords(inputs)
+        #coords = coords.to(self.args.device)
+
+        out = self.decoder(coords)
+        out = rearrange(out, 'b hwd c -> b c hwd')
+
+        #print(f"[DEBUG] inputs: {inputs.shape}, out: {out.shape}")
+        #print(f"[DEBUG] flattened: {inputs.view(meta_batch_size, -1).shape}, {out.view(meta_batch_size, -1).shape}")
+
+        if exists(inputs):
+            if self.sampled_coord is None and self.gradncp_coord is None:
+                return F.mse_loss(inputs.view(meta_batch_size, -1), out.view(meta_batch_size, -1), reduce=False).mean(dim=1)
+            elif self.gradncp_coord is not None:
+                inputs = rearrange(inputs, 'b c h w d -> b c (h w d)')
+                inputs = torch.gather(inputs, 2, self.gradncp_index)
+                return F.mse_loss(inputs.view(meta_batch_size, -1), out.view(meta_batch_size, -1), reduce=False).mean(dim=1)
+            else:
+                inputs = rearrange(inputs, 'b c h w d -> b c (h w d)')[:, :, self.sampled_index]
+                return F.mse_loss(inputs.view(meta_batch_size, -1), out.view(meta_batch_size, -1), reduce=False).mean(dim=1)
+
+        out = rearrange(out, 'b c (h w d) -> b c h w d', h=self.height, w=self.width, d=self.depth)
+        return out
+    
 
     def forward_audio(self, inputs=None, params=None):
         if exists(inputs):

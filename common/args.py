@@ -33,7 +33,7 @@ def parse_args():
     parser.add_argument('--eval_step', help='Epoch steps to compute accuracy/error',
                         default=1000, type=int)
     parser.add_argument('--save_step', help='Epoch steps to save checkpoint',
-                        default=50000, type=int)
+                        default=2000, type=int)
     parser.add_argument('--print_step', help='Epoch steps to print/track training stat',
                         default=100, type=int)
     parser.add_argument("--no_date", help='do not save the date',

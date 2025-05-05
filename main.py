@@ -11,11 +11,15 @@ from utils import Logger, set_random_seed
 
 def main(rank, P):
     P.rank = rank
-
     """ set torch device"""
     if torch.cuda.is_available():
         torch.cuda.set_device(P.rank)
     device = torch.device(f"cuda" if torch.cuda.is_available() else "cpu")
+
+
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats()
+
 
     """ fixing randomness """
     set_random_seed(P.seed)
@@ -27,7 +31,7 @@ def main(rank, P):
 
     """ define dataloader """
     kwargs = {'pin_memory': True, 'num_workers': 0}
-    train_sampler = InfiniteSampler(train_set, rank=rank, num_replicas=1, shuffle=True, seed=P.seed)
+    train_sampler = InfiniteSampler(train_set, rank=0, num_replicas=1, shuffle=True, seed=P.seed)
     train_loader = DataLoader(train_set, sampler=train_sampler, batch_size=P.batch_size, num_workers=4, prefetch_factor=2)
     test_loader = DataLoader(test_set, shuffle=False, batch_size=P.test_batch_size, **kwargs)
 

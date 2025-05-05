@@ -30,7 +30,7 @@ def get_inr(P):
 def get_model(P):
     decoder = get_inr(P)
 
-    if P.data_type in ['img', 'audio', 'manifold', 'video']:  # TODO refactor NeRF Wrapper
+    if P.data_type in ['img', 'img3d', 'audio', 'manifold', 'video']:  # TODO refactor NeRF Wrapper
         return MetaWrapper(P, decoder)
     else:
         raise NotImplementedError()
